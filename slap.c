@@ -7,14 +7,21 @@
 */
 
 #include "slap.h"
+#include "mir.h"
+#include "mir-gen.h"
 
+int strcmp(const char*, const char*);
 int strncmp(const char*, const char*, long unsigned int);
 long unsigned int strlen(const char*);
 int printf(const char*, ...);
 void exit(int);
 
+#ifndef NDEBUG
 #include <stdio.h>
 #define LOG(fmt, ...) fprintf(stderr, fmt "\n", ##__VA_ARGS__)
+#else
+#define LOG(fmt, ...)
+#endif
 
 #define TokenNil ((Token){0})
 
@@ -178,6 +185,12 @@ static bool src_is(Src* src, char* s) {
   t = src_tok(src);
   if (src_tok_nil(t)) return false;
   return (strlen(s) == src->tok.len && strncmp(t.s, s, t.len) == 0);
+}
+
+static void fail(Src* src, char* s) {
+  src_print(src);
+  printf("error: %s\n", s);
+  exit(1);
 }
 
 static bool src_expect(Src* src, char* s) {
@@ -537,9 +550,8 @@ static NodeID parse_stmt_if_root(Src* s) {
 }
 
 static NodeID parse_stmts(Src* s) {
-  NodeID nid, neid;
-  Node* n;
-  Node* ne;
+  NodeID nid = 0;
+  Node* n = 0;
 
   if (src_is(s, "}")) return NodeNil;
 
@@ -550,8 +562,12 @@ static NodeID parse_stmts(Src* s) {
       nid = parse_stmt_if_root(s);
     } else if (src_is(s, "while")) {
       nid = parse_stmt_while(s);
+    } else {
+      fail(s, "unrecognized keyword");
     }
   } else {
+    NodeID neid;
+    Node* ne;
     neid = parse_expr(s, 0);
     ne = node_get(neid);
     if (ne->val.expr.op == Op_Call) {
@@ -817,6 +833,82 @@ NodeID parse(Src* s) {
 void analyze(NodeID root) {
 }
 
+void codegen(MIR_context_t mir) {
+  MIR_module_t mod = MIR_new_module(mir, "slap");
+  (void)mod;
+
+  // Main
+  MIR_type_t res_type = MIR_T_I32;
+  MIR_var_t arg_vars[2] = {
+    { MIR_T_I32, "argc" },
+    { MIR_T_P, "argv" },
+  };
+  MIR_item_t main_fn = MIR_new_func_arr(mir, "main", 1, &res_type, 2, arg_vars);
+  MIR_append_insn(mir, main_fn, MIR_new_ret_insn(mir, 1, MIR_new_int_op(mir, 7)));
+  MIR_finish_func(mir);
+
+  MIR_finish_module(mir);
+}
+
+static __attribute__((noreturn)) void slap_mir_error(
+    MIR_error_type_t error_type, const char *message, ...) {
+  printf("mir error (%d): %s\n", error_type, message);
+  exit(1);
+}
+
+static void* slap_mir_import_resolve(const char* name) {
+  return 0;
+}
+
+typedef int (*main_fn_sig)(int argc, char** argv);
+
+static MIR_item_t load_fn(MIR_context_t mir, char* name) {
+  // Load main
+  MIR_item_t main_fn = 0;
+  MIR_module_t mod = DLIST_HEAD(MIR_module_t, *MIR_get_module_list(mir));
+  MIR_load_module(mir, mod);
+  for (MIR_item_t item = DLIST_HEAD(MIR_item_t, mod->items); item != NULL;
+       item = DLIST_NEXT(MIR_item_t, item)) {
+    if (item->item_type != MIR_func_item) continue;
+    MIR_func_t fn = MIR_get_item_func(mir, item);
+    if (strcmp(fn->name, name) == 0) {
+      main_fn = item;
+      break;
+    }
+  }
+  if (!main_fn) {
+    printf("error: could not find main\n");
+    exit(1);
+  }
+  return main_fn;
+}
+
+static void run_interp(MIR_context_t mir) {
+  MIR_item_t iterp_main = load_fn(mir, "main");
+  MIR_link(mir, MIR_set_interp_interface, slap_mir_import_resolve);
+  char* argv[2] = {"slapinterp", "hello!"};
+  MIR_val_t args[2] = {
+    {.i = 2 },
+    {.a = argv },
+  };
+  MIR_val_t result;
+  MIR_interp_arr(mir, iterp_main, &result, 2, args);
+  printf("interp result %ld\n", result.i);
+}
+
+static void run_jit(MIR_context_t mir) {
+  MIR_item_t gen_main = load_fn(mir, "main");
+  MIR_gen_init(mir);
+  MIR_gen_set_optimize_level(mir, 2);
+  MIR_link(mir, MIR_set_gen_interface, slap_mir_import_resolve);
+  void* main_gen = MIR_gen(mir, gen_main);
+  char* argv[2] = {"slapinterp", "hello!"};
+  int gen_res = ((main_fn_sig)(main_gen))(2, argv);
+  printf("gen result %d\n", gen_res);
+  MIR_gen_finish(mir);
+}
+
+#ifndef NOMAIN
 int main(int argc, char** argv) {
   Src s;
 
@@ -833,9 +925,31 @@ int main(int argc, char** argv) {
   src_print(&s);
   parse_print(root);
 
-  printf("\nsizeof(Node)=%ld\n", sizeof(Node));
+  printf("\n\n");
+  printf("sizeof(Node)=%ld\n", sizeof(Node));
+  printf("\n\n");
+
+  MIR_context_t mir = MIR_init();
+  MIR_set_error_func(mir, slap_mir_error);
+
+
+  // Codegen
+  codegen(mir);
+  MIR_output(mir, stdout);
+
+  // TODO: MIR_load_external for builtin/system functions
+
+  // Run
+  // TODO: if run_interp runs first, run_jit will segfault in MIR_link:
+  // generate_func_code->dse->calculate_mem_live_info->initiate_mem_live_info->
+  // initiate_bb_mem_live_info->make_live_from_mem (src/mir-gen.c:5045)
+  run_jit(mir);
+  run_interp(mir);
+
+  MIR_finish(mir);
   return 0;
 }
+#endif
 
 /* Check + augment parse */
 /* Generate code

@@ -1,2 +1,3 @@
 slap
-slap.o
+*.o
+*.a
