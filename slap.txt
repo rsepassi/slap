@@ -1,0 +1,8 @@
+SLAP: Structured Language for ALU Processing
+
+A C-like Language.
+
+Pairs nicely with Lisp (List Processing).
+
+Turing's Machine to Church's Calculus.
+Spacetime-bound vs. spacetime-free.
