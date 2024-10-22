@@ -1,29 +1,51 @@
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define u8 uint8_t
+#define u16 uint16_t
 #define u32 uint32_t
+#define u64 uint64_t
 #define NodeID u32
 #define NodeNil 0
 
 enum TokenType {
-  Token_DELIM,
-  Token_NAME,
-  Token_KEYWORD,
+  Token_PUNCT,
+  Token_COLONEQ,
+  Token_EQEQ,
+  Token_LTLT,
+  Token_LTEQ,
+  Token_GTGT,
+  Token_GTEQ,
+  Token_AMPAMP,
+  Token_PIPEPIPE,
+  Token_VOID,
+  Token_U8,
+  Token_U16,
+  Token_U32,
+  Token_U64,
+  Token_WHILE,
+  Token_IF,
+  Token_ELSE,
+  Token_RETURN,
+  Token_FN,
+  Token_EXTERN,
   Token_LIT_NUM,
   Token_LIT_STR,
   Token_LIT_CHAR,
+  Token_NAME,
+
+  Token__count,
 };
 
 typedef struct {
-  char* s;
+  char *s;
   u8 len;
   enum TokenType type;
 } Token;
 
 typedef struct {
-  char* start;
-  char* cur;
+  char *start;
+  char *cur;
   u32 line;
   Token tok;
 } Src;
@@ -41,8 +63,8 @@ typedef struct {
 
 typedef struct {
   Token type;
-  u8 nptr;  /* pointer */
-  NodeID len;  /* array */
+  u8 nptr;    /* pointer */
+  NodeID len; /* array */
 } NodeType;
 
 enum OpType {
@@ -50,7 +72,6 @@ enum OpType {
   Op_ArrayLiteral,
   Op_Call,
   Op_ArrayAccess,
-  Op_Cast,
 
   Op_Unary,
   Op_Binary,
@@ -73,6 +94,7 @@ typedef struct {
   NodeID args;
   NodeID ret;
   NodeID stmts;
+  bool xextern;
 } NodeFndef;
 
 typedef struct {
@@ -105,6 +127,7 @@ typedef struct {
 } NodeStmtCall;
 
 typedef struct {
+  Token tok;
   NodeID expr;
 } NodeStmtRet;
 
@@ -123,12 +146,12 @@ typedef struct {
   enum StmtType type;
   union {
     NodeStmtAssign assign;
-    NodeStmtIf xif;
-    NodeStmtIfRoot ifs;
-    NodeStmtElse xelse;
     NodeStmtWhile xwhile;
     NodeStmtCall call;
     NodeStmtRet ret;
+    NodeStmtIfRoot ifs;
+    NodeStmtIf xif;
+    NodeStmtElse xelse;
   } val;
 } NodeStmt;
 
@@ -160,7 +183,6 @@ typedef struct {
   } val;
 } Node;
 
-void src_init(Src* s, char* start);
-void parse_init();
-NodeID parse(Src* s);
-Node* node_get(NodeID id);
+void src_init(Src *s, char *start);
+NodeID parse(Src *s);
+Node *node_get(NodeID id);

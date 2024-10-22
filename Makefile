@@ -1,11 +1,15 @@
-CFLAGS := -std=c99 -Wall -Werror
+CFLAGS += -std=c99 -Wall -Werror
 
-slap: slap.c
+slap: Makefile slap.c
 	make -C mir
-	$(CC) -o slap -Imir/include $(CFLAGS) slap.c mir/libmir.a -lc
+	$(CC) -o $@ -Imir/include $(CFLAGS) slap.c mir/libmir.a -lc
+
+libslap.a: Makefile slap.c
+	$(CC) -c -Imir/include $(CFLAGS) slap.c
+	ar rcs $@ slap.o
 
 clean:
-	rm -f slap
+	rm -f slap slap.o libslap.a
 
 clean-all: clean
 	make -C mir clean
